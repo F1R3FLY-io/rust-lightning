@@ -31,7 +31,7 @@ use bitcoin::hash_types::{Txid, BlockHash};
 
 use bitcoin::ecdsa::Signature as BitcoinSignature;
 use bitcoin::secp256k1::{self, SecretKey, PublicKey, Secp256k1, ecdsa::Signature};
-use rgb_lib::ContractId;
+use hypersonic::ContractId;
 
 use crate::ln::channel::INITIAL_COMMITMENT_NUMBER;
 use crate::ln::types::{PaymentHash, PaymentPreimage, ChannelId};

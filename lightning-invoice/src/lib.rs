@@ -42,7 +42,7 @@ use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::{Message, Secp256k1};
 use bitcoin::secp256k1::ecdsa::RecoverableSignature;
 
-use rgb_lib::ContractId;
+use hypersonic::ContractId;
 
 use core::cmp::Ordering;
 use core::fmt::{Display, Formatter, self};

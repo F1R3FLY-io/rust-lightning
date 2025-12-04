@@ -33,9 +33,10 @@ use bitcoin::secp256k1::Secp256k1;
 use bitcoin::{secp256k1, Sequence};
 use bitcoin::hex::DisplayHex;
 
-use rgb_lib::{ContractId, RgbTransport};
+use hypersonic::ContractId;
 
 use crate::events::FundingInfo;
+use crate::rgb_utils::RgbTransport;
 use crate::blinded_path::message::{MessageContext, OffersContext};
 use crate::blinded_path::NodeIdLookUp;
 use crate::blinded_path::message::{BlindedMessagePath, MessageForwardNode};

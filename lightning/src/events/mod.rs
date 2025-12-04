@@ -17,7 +17,7 @@
 pub mod bump_transaction;
 
 pub use bump_transaction::BumpTransactionEvent;
-use rgb_lib::ContractId;
+use hypersonic::ContractId;
 
 use crate::blinded_path::message::OffersContext;
 use crate::blinded_path::payment::{Bolt12OfferContext, Bolt12RefundContext, PaymentContext, PaymentContextRef};

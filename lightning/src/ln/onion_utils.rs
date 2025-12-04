@@ -30,7 +30,7 @@ use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::secp256k1;
 use bitcoin::secp256k1::ecdh::SharedSecret;
 use bitcoin::secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
-use rgb_lib::ContractId;
+use hypersonic::ContractId;
 
 use crate::io::{Cursor, Read};
 use core::ops::Deref;

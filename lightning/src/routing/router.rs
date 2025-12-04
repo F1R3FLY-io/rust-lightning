@@ -11,7 +11,7 @@
 
 use bitcoin::secp256k1::{PublicKey, Secp256k1, self};
 
-use rgb_lib::ContractId;
+use hypersonic::ContractId;
 
 use crate::blinded_path::{BlindedHop, Direction, IntroductionNode};
 use crate::blinded_path::message::{BlindedMessagePath, MessageContext, MessageForwardNode};

@@ -18,7 +18,7 @@ use crate::routing::gossip::RoutingFees;
 use crate::routing::router::{RouteHint, RouteHintHop, Router};
 use crate::util::logger::{Logger, Record};
 use bitcoin::secp256k1::PublicKey;
-use rgb_lib::ContractId;
+use hypersonic::ContractId;
 use alloc::collections::{btree_map, BTreeMap};
 use core::ops::Deref;
 use core::time::Duration;

@@ -13,7 +13,7 @@ use bech32::{u5, FromBase32};
 use bitcoin::{PubkeyHash, ScriptHash, WitnessVersion};
 use bitcoin::hashes::Hash;
 use bitcoin::hashes::sha256;
-use rgb_lib::ContractId;
+use hypersonic::ContractId;
 use crate::prelude::*;
 use lightning_types::payment::PaymentSecret;
 use lightning_types::routing::{RoutingFees, RouteHint, RouteHintHop};

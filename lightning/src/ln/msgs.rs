@@ -31,7 +31,8 @@ use bitcoin::{secp256k1, Witness};
 use bitcoin::script::ScriptBuf;
 use bitcoin::hash_types::Txid;
 
-use rgb_lib::{ContractId, RgbTransport};
+use hypersonic::ContractId;
+use crate::rgb_utils::RgbTransport;
 
 use crate::blinded_path::payment::{BlindedPaymentTlvs, ForwardTlvs, ReceiveTlvs};
 use crate::ln::types::{ChannelId, PaymentPreimage, PaymentHash, PaymentSecret};
@@ -1742,7 +1743,7 @@ pub struct FinalOnionHopData {
 
 mod fuzzy_internal_msgs {
 	use bitcoin::secp256k1::PublicKey;
-	use rgb_lib::ContractId;
+	use hypersonic::ContractId;
 	use crate::blinded_path::payment::{PaymentConstraints, PaymentContext, PaymentRelay};
 	use crate::ln::types::{PaymentPreimage, PaymentSecret};
 	use crate::ln::features::BlindedHopFeatures;
@@ -2991,14 +2992,18 @@ impl Writeable for UnsignedChannelAnnouncement {
 impl Readable for ContractId {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
 		let buf: [u8; 32] = Readable::read(r)?;
-		let contract_id = ContractId::copy_from_slice(buf).unwrap();
-		Ok(contract_id)
+		Ok(ContractId::from(buf))
 	}
 }
 
 impl Writeable for ContractId {
 	fn write<W: Writer>(&self, w: &mut W) -> Result<(), io::Error> {
-		w.write_all(&self[..])
+		w.write_all(self.as_slice())
+	}
+
+	#[inline]
+	fn serialized_length(&self) -> usize {
+		32
 	}
 }
 

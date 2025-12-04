@@ -27,9 +27,10 @@ use bitcoin::secp256k1::{PublicKey,SecretKey};
 use bitcoin::secp256k1::{Secp256k1,ecdsa::Signature};
 use bitcoin::secp256k1;
 
-use rgb_lib::{ContractId, RgbTransport};
+use hypersonic::ContractId;
 
 use crate::ln::types::{ChannelId, PaymentPreimage, PaymentHash};
+use crate::rgb_utils::RgbTransport;
 use crate::ln::features::{ChannelTypeFeatures, InitFeatures};
 use crate::ln::msgs;
 use crate::ln::msgs::{ClosingSigned, ClosingSignedFeeRange, DecodeError};
