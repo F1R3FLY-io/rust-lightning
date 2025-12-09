@@ -1,4 +1,11 @@
 //! A module to provide RGB functionality
+//!
+//! TODO(logging): This module contains 114 and counting `eprintln!` statements used for debugging.
+//! These should be converted to LDK's logging infrastructure (log_debug!, log_info!, etc.)
+//! which requires:
+//! 1. Adding a Logger generic parameter to the Wallet struct
+//! 2. Propagating logger through all method signatures
+//! 3. Updating callers in ln/channel.rs, ln/channelmanager.rs
 
 #![allow(missing_docs)]
 
