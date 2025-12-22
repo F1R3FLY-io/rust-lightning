@@ -22,10 +22,10 @@ use crate::ln::types::{ChannelId, PaymentHash};
 use crate::sign::SignerProvider;
 
 use bitcoin::blockdata::transaction::Transaction;
-use bitcoin::hex::DisplayHex;
 use bitcoin::hashes::hex::FromHex;
+use bitcoin::hex::DisplayHex;
 use bitcoin::psbt::{ExtractTxError, Psbt};
-use bitcoin::secp256k1::{PublicKey, SecretKey, Secp256k1};
+use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 use bitcoin::TxOut;
 use hypersonic::ContractId;
 use serde::{Deserialize, Serialize};
@@ -35,8 +35,8 @@ use bitcoin::Txid as RgbTxid;
 
 use core::ops::Deref;
 use std::collections::HashMap;
-use std::fs;
 use std::fmt;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
@@ -56,11 +56,7 @@ pub trait SettlementExecutor: Send + Sync {
 	///
 	/// Returns the state hash for embedding in the closing transaction's OP_RETURN
 	fn settle_channel_close(
-		&self,
-		funding_utxo: &str,
-		holder_amount: u64,
-		counterparty_amount: u64,
-		contract_id: &str,
+		&self, funding_utxo: &str, holder_amount: u64, counterparty_amount: u64, contract_id: &str,
 	) -> Result<[u8; 32], RgbLibError>;
 
 	/// Claim RGB assets from witness ID to Bitcoin UTXO after settlement
@@ -76,10 +72,7 @@ pub trait SettlementExecutor: Send + Sync {
 	/// # Returns
 	/// Ok(()) if claim succeeds, Err otherwise
 	fn claim_from_witness(
-		&self,
-		witness_id: &str,
-		destination_utxo: &str,
-		contract_id: &str,
+		&self, witness_id: &str, destination_utxo: &str, contract_id: &str,
 	) -> Result<(), RgbLibError>;
 
 	/// Check if a witness ID has already been claimed
@@ -90,11 +83,7 @@ pub trait SettlementExecutor: Send + Sync {
 	///
 	/// # Returns
 	/// Ok(true) if witness has been claimed, Ok(false) if not, Err on storage error
-	fn is_witness_claimed(
-		&self,
-		witness_id: &str,
-		contract_id: &str,
-	) -> Result<bool, RgbLibError>;
+	fn is_witness_claimed(&self, witness_id: &str, contract_id: &str) -> Result<bool, RgbLibError>;
 }
 
 /// Global reference to the settlement executor (set during wallet initialization)
@@ -135,12 +124,12 @@ pub enum RgbTransport {
 	/// JSON-RPC transport
 	JsonRpc {
 		/// RPC endpoint
-		endpoint: String
+		endpoint: String,
 	},
 	/// REST HTTP transport
 	RestHttp {
 		/// HTTP endpoint
-		endpoint: String
+		endpoint: String,
 	},
 }
 
@@ -347,17 +336,16 @@ impl Wallet {
 	}
 
 	pub fn accept_transfer(
-		&self,
-		funding_txid: String,
-		_funding_vout: u32,
-		consignment_endpoint: Option<RgbTransport>,
-		_static_blinding: u64,
+		&self, funding_txid: String, _funding_vout: u32,
+		consignment_endpoint: Option<RgbTransport>, _static_blinding: u64,
 	) -> Result<(RgbTransfer, Vec<Assignment>), RgbLibError> {
 		// For F1r3fly: Download JSON with contract_id + state_hash instead of consignment
-		eprintln!("📥 accept_transfer CALLED: funding_txid={}, endpoint={:?}", funding_txid, consignment_endpoint);
+		eprintln!(
+			"📥 accept_transfer CALLED: funding_txid={}, endpoint={:?}",
+			funding_txid, consignment_endpoint
+		);
 
-		let endpoint = consignment_endpoint
-			.ok_or(RgbLibError::NoConsignment)?;
+		let endpoint = consignment_endpoint.ok_or(RgbLibError::NoConsignment)?;
 		eprintln!("📥 accept_transfer: endpoint resolved: {}", endpoint);
 
 		// For F1r3fly: use funding_txid as the recipient_id
@@ -388,7 +376,8 @@ impl Wallet {
 		eprintln!("📥 accept_transfer: Request: {:?}", rpc_request);
 
 		let client = reqwest::blocking::Client::new();
-		let response = client.post(base_url)
+		let response = client
+			.post(base_url)
 			.header("Content-Type", "application/json")
 			.json(&rpc_request)
 			.send()
@@ -415,11 +404,10 @@ impl Wallet {
 			consignment: String,
 		}
 
-		let rpc_response = response.json::<JsonRpcResponse>()
-			.map_err(|e| {
-				eprintln!("❌ accept_transfer: Failed to parse JSON-RPC response: {}", e);
-				RgbLibError::Other(format!("Failed to parse JSON-RPC response: {}", e))
-			})?;
+		let rpc_response = response.json::<JsonRpcResponse>().map_err(|e| {
+			eprintln!("❌ accept_transfer: Failed to parse JSON-RPC response: {}", e);
+			RgbLibError::Other(format!("Failed to parse JSON-RPC response: {}", e))
+		})?;
 
 		eprintln!("📥 accept_transfer: Parsed JSON-RPC response successfully");
 
@@ -428,31 +416,32 @@ impl Wallet {
 			return Err(RgbLibError::Other(format!("JSON-RPC error: {}", error)));
 		}
 
-		let result = rpc_response.result
-			.ok_or_else(|| {
-				eprintln!("❌ accept_transfer: No result in JSON-RPC response");
-				RgbLibError::NoConsignment
-			})?;
+		let result = rpc_response.result.ok_or_else(|| {
+			eprintln!("❌ accept_transfer: No result in JSON-RPC response");
+			RgbLibError::NoConsignment
+		})?;
 
 		eprintln!("📥 accept_transfer: Got result from JSON-RPC response");
 
 		// The "consignment" field contains base64-encoded F1r3fly JSON data
 		// (proxy stores all consignments as base64)
 		let consignment_b64 = result.consignment;
-		eprintln!("📥 accept_transfer: Consignment data (base64) length: {} bytes", consignment_b64.len());
+		eprintln!(
+			"📥 accept_transfer: Consignment data (base64) length: {} bytes",
+			consignment_b64.len()
+		);
 
 		use base64::Engine;
-		let json_bytes = base64::engine::general_purpose::STANDARD.decode(&consignment_b64)
-			.map_err(|e| {
+		let json_bytes =
+			base64::engine::general_purpose::STANDARD.decode(&consignment_b64).map_err(|e| {
 				eprintln!("❌ accept_transfer: Failed to decode base64: {}", e);
 				RgbLibError::Other(format!("Failed to decode base64 consignment: {}", e))
 			})?;
 
-		let json_text = String::from_utf8(json_bytes)
-			.map_err(|e| {
-				eprintln!("❌ accept_transfer: Failed to convert to UTF-8: {}", e);
-				RgbLibError::Other(format!("Failed to convert consignment to UTF-8: {}", e))
-			})?;
+		let json_text = String::from_utf8(json_bytes).map_err(|e| {
+			eprintln!("❌ accept_transfer: Failed to convert to UTF-8: {}", e);
+			RgbLibError::Other(format!("Failed to convert consignment to UTF-8: {}", e))
+		})?;
 
 		eprintln!("📥 accept_transfer: Decoded JSON length: {} bytes", json_text.len());
 
@@ -474,12 +463,11 @@ impl Wallet {
 			wallet_pubkey: String,
 		}
 
-		let channel_info: F1r3flyChannelInfo = serde_json::from_str(&json_text)
-			.map_err(|e| {
-				eprintln!("❌ accept_transfer: Failed to parse F1r3flyChannelInfo: {}", e);
-				eprintln!("❌ accept_transfer: JSON text was: {}", json_text);
-				RgbLibError::InvalidConsignment
-			})?;
+		let channel_info: F1r3flyChannelInfo = serde_json::from_str(&json_text).map_err(|e| {
+			eprintln!("❌ accept_transfer: Failed to parse F1r3flyChannelInfo: {}", e);
+			eprintln!("❌ accept_transfer: JSON text was: {}", json_text);
+			RgbLibError::InvalidConsignment
+		})?;
 
 		eprintln!("📥 accept_transfer: Parsed F1r3flyChannelInfo successfully");
 		eprintln!("  Contract: {} ({})", channel_info.ticker, channel_info.name);
@@ -491,7 +479,9 @@ impl Wallet {
 			"Uda" => AssetSchema::Uda,
 			"Cfa" => AssetSchema::Cfa,
 			"Ifa" => AssetSchema::Ifa,
-			_ => return Err(RgbLibError::Other(format!("Unknown schema: {}", channel_info.schema))),
+			_ => {
+				return Err(RgbLibError::Other(format!("Unknown schema: {}", channel_info.schema)))
+			},
 		};
 
 		// Write Node2's f1r3fly_state.json and register contract in contracts manager
@@ -506,7 +496,7 @@ impl Wallet {
 			&channel_info.registry_uri,
 			&channel_info.rholang_source,
 			&channel_info.methods,
-			&channel_info.wallet_pubkey,  // Phase 3: Pass counterparty's wallet pubkey
+			&channel_info.wallet_pubkey, // Phase 3: Pass counterparty's wallet pubkey
 		)?;
 
 		// Phase 7: Post Node2's wallet pubkey back to proxy for Node1 to retrieve
@@ -539,8 +529,7 @@ impl Wallet {
 	///
 	/// Returns (RgbInfo, channel_id_hex) on success.
 	fn find_rgb_info_by_contract(
-		&self,
-		contract_id: &ContractId,
+		&self, contract_id: &ContractId,
 	) -> Result<(RgbInfo, String), RgbLibError> {
 		// Scan ldk_data_dir for .pending files
 		let ldk_dir = &self.ldk_data_dir;
@@ -549,24 +538,30 @@ impl Wallet {
 			.map_err(|e| RgbLibError::Other(format!("Failed to read ldk_data_dir: {}", e)))?;
 
 		for entry in entries {
-			let entry = entry.map_err(|e| RgbLibError::Other(format!("Failed to read dir entry: {}", e)))?;
+			let entry = entry
+				.map_err(|e| RgbLibError::Other(format!("Failed to read dir entry: {}", e)))?;
 			let path = entry.path();
 
 			// Check if this is a .pending file
 			if path.extension().and_then(|s| s.to_str()) == Some("pending") {
 				// Try to parse as RgbInfo
-				if let Ok(rgb_info) = fs::read_to_string(&path)
-					.and_then(|content| serde_json::from_str::<RgbInfo>(&content).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e)))
-				{
+				if let Ok(rgb_info) = fs::read_to_string(&path).and_then(|content| {
+					serde_json::from_str::<RgbInfo>(&content)
+						.map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+				}) {
 					// Check if this channel has our contract
 					if rgb_info.contract_id == *contract_id {
 						// Found it! Extract channel_id from filename
-						let channel_id_hex = path.file_stem()
+						let channel_id_hex = path
+							.file_stem()
 							.and_then(|s| s.to_str())
 							.ok_or(RgbLibError::Other("Invalid filename".to_string()))?
 							.to_string();
 
-						eprintln!("✅ find_rgb_info_by_contract: Found RgbInfo for contract {}", contract_id);
+						eprintln!(
+							"✅ find_rgb_info_by_contract: Found RgbInfo for contract {}",
+							contract_id
+						);
 						eprintln!("  Channel ID: {}", channel_id_hex);
 						eprintln!("  local_rgb_amount: {}", rgb_info.local_rgb_amount);
 						eprintln!("  remote_rgb_amount: {}", rgb_info.remote_rgb_amount);
@@ -577,26 +572,33 @@ impl Wallet {
 			}
 		}
 
-		Err(RgbLibError::Other(format!(
-			"No RgbInfo file found for contract {}",
-			contract_id
-		)))
+		Err(RgbLibError::Other(format!("No RgbInfo file found for contract {}", contract_id)))
 	}
 
-	pub fn color_psbt(&self, psbt: &mut Psbt, coloring_info: ColoringInfo) -> Result<(Fascia, FileContent), RgbLibError> {
+	pub fn color_psbt(
+		&self, psbt: &mut Psbt, coloring_info: ColoringInfo,
+	) -> Result<(Fascia, FileContent), RgbLibError> {
 		eprintln!("🎨 color_psbt: ENTRY");
 		eprintln!("  INPUT psbt.unsigned_tx.output.len() = {}", psbt.unsigned_tx.output.len());
 		eprintln!("  INPUT psbt.outputs.len() = {}", psbt.outputs.len());
 		eprintln!("  INPUT psbt.inputs.len() = {}", psbt.inputs.len());
 		eprintln!("  INPUT psbt.unsigned_tx.input.len() = {}", psbt.unsigned_tx.input.len());
 		eprintln!("  INPUT psbt.unsigned_tx.version = {}", psbt.unsigned_tx.version.0);
-		eprintln!("  INPUT psbt.unsigned_tx.lock_time = {}", psbt.unsigned_tx.lock_time.to_consensus_u32());
+		eprintln!(
+			"  INPUT psbt.unsigned_tx.lock_time = {}",
+			psbt.unsigned_tx.lock_time.to_consensus_u32()
+		);
 
 		for (i, out) in psbt.unsigned_tx.output.iter().enumerate() {
 			if out.script_pubkey.is_op_return() {
 				eprintln!("  INPUT Output {}: OP_RETURN ({} bytes)", i, out.script_pubkey.len());
 			} else {
-				eprintln!("  INPUT Output {}: {} sats, script: {}", i, out.value.to_sat(), out.script_pubkey.len());
+				eprintln!(
+					"  INPUT Output {}: {} sats, script: {}",
+					i,
+					out.value.to_sat(),
+					out.script_pubkey.len()
+				);
 			}
 		}
 
@@ -610,7 +612,8 @@ impl Wallet {
 		}
 
 		for (i, output) in psbt.outputs.iter().enumerate() {
-			eprintln!("  INPUT PSBT Output {}: redeem_script={}, witness_script={}, bip32_derivation={}",
+			eprintln!(
+				"  INPUT PSBT Output {}: redeem_script={}, witness_script={}, bip32_derivation={}",
 				i,
 				output.redeem_script.is_some(),
 				output.witness_script.is_some(),
@@ -630,34 +633,37 @@ impl Wallet {
 		// - Closing TX: Execute settle_channel() on F1r3node to split assets atomically
 		// - Commitment/HTLC: Assets stay in funding UTXO, use genesis state hash
 
-	eprintln!("🔍 color_psbt: Transaction type = {:?}", coloring_info.ln_tx_type);
-	eprintln!("  total_outputs (TX) = {}", psbt.unsigned_tx.output.len());
-	eprintln!("  output_map.len() (RGB) = {}", asset_info.output_map.len());
-	eprintln!("  nonce = {:?}", coloring_info.nonce);
+		eprintln!("🔍 color_psbt: Transaction type = {:?}", coloring_info.ln_tx_type);
+		eprintln!("  total_outputs (TX) = {}", psbt.unsigned_tx.output.len());
+		eprintln!("  output_map.len() (RGB) = {}", asset_info.output_map.len());
+		eprintln!("  nonce = {:?}", coloring_info.nonce);
 
-	let is_closing_tx = matches!(coloring_info.ln_tx_type, LnTransactionType::Closing);
+		let is_closing_tx = matches!(coloring_info.ln_tx_type, LnTransactionType::Closing);
 
-	let state_hash = if is_closing_tx {
-		eprintln!("🔚 color_psbt: CLOSING TRANSACTION - executing settlement");
+		let state_hash = if is_closing_tx {
+			eprintln!("🔚 color_psbt: CLOSING TRANSACTION - executing settlement");
 
-		// Extract funding UTXO from closing transaction's input
-		// The closing TX spends the funding UTXO, so input[0] is the funding outpoint
-		let funding_outpoint = psbt.unsigned_tx.input.get(0)
-			.ok_or(RgbLibError::Other("Closing TX has no inputs".to_string()))?
-			.previous_output;
+			// Extract funding UTXO from closing transaction's input
+			// The closing TX spends the funding UTXO, so input[0] is the funding outpoint
+			let funding_outpoint = psbt
+				.unsigned_tx
+				.input
+				.get(0)
+				.ok_or(RgbLibError::Other("Closing TX has no inputs".to_string()))?
+				.previous_output;
 
-		let funding_txid = funding_outpoint.txid.to_string();
-		let funding_vout = funding_outpoint.vout;
+			let funding_txid = funding_outpoint.txid.to_string();
+			let funding_vout = funding_outpoint.vout;
 
-		// CRITICAL: Use "witness:txid:vout" format to match send_end() and settle_channel_close()
-		// This must be identical to what send_end() used during channel opening transfer
-		// so that the witness ID generation (sha256(funding_witness_id + "holder")) produces the same result
-		let funding_utxo = format!("{}:{}", funding_txid, funding_vout);
-		let funding_witness_id = format!("witness:{}", funding_utxo);
+			// CRITICAL: Use "witness:txid:vout" format to match send_end() and settle_channel_close()
+			// This must be identical to what send_end() used during channel opening transfer
+			// so that the witness ID generation (sha256(funding_witness_id + "holder")) produces the same result
+			let funding_utxo = format!("{}:{}", funding_txid, funding_vout);
+			let funding_witness_id = format!("witness:{}", funding_utxo);
 
-		eprintln!("  Funding outpoint: {}:{}", funding_txid, funding_vout);
-		eprintln!("  Funding UTXO: {}", funding_utxo);
-		eprintln!("  Funding witness ID (for F1r3node): {}", funding_witness_id);
+			eprintln!("  Funding outpoint: {}:{}", funding_txid, funding_vout);
+			eprintln!("  Funding UTXO: {}", funding_utxo);
+			eprintln!("  Funding witness ID (for F1r3node): {}", funding_witness_id);
 
 			// Read RgbInfo to get the correct holder and counterparty amounts
 			// This is the ONLY correct source of truth for final channel balances
@@ -678,11 +684,16 @@ impl Wallet {
 			eprintln!("  Holder amount (local): {}", holder_amount);
 			eprintln!("  Counterparty amount (remote): {}", counterparty_amount);
 
-		// Execute settlement on F1r3node
-		// NOTE: Pass plain funding_utxo (not witness ID) as this is the API parameter
-		// The execute_settlement -> settle_channel_close will add "witness:" prefix internally
-		eprintln!("🔄 color_psbt: Calling execute_settlement()...");
-		let settlement_hash = self.execute_settlement(&funding_utxo, holder_amount, counterparty_amount, &contract_id_str)?;
+			// Execute settlement on F1r3node
+			// NOTE: Pass plain funding_utxo (not witness ID) as this is the API parameter
+			// The execute_settlement -> settle_channel_close will add "witness:" prefix internally
+			eprintln!("🔄 color_psbt: Calling execute_settlement()...");
+			let settlement_hash = self.execute_settlement(
+				&funding_utxo,
+				holder_amount,
+				counterparty_amount,
+				&contract_id_str,
+			)?;
 
 			// ============================================================================
 			// AUTO-CLAIM: Move assets from witness IDs to closing TX outputs
@@ -697,24 +708,25 @@ impl Wallet {
 			//
 			// We do step 2 immediately after step 1 to mimic rgb-lib's atomicity.
 			//
-		eprintln!("🎯 color_psbt: AUTO-CLAIM phase starting...");
+			eprintln!("🎯 color_psbt: AUTO-CLAIM phase starting...");
 
-		// Generate holder witness ID (MUST match settle_channel_close pattern exactly)
-		// CRITICAL: Use funding_witness_id ("witness:txid:vout") to match settle_channel_close()
-		use bitcoin::hashes::{Hash, sha256};
-		let holder_hash = sha256::Hash::hash(
-			format!("{}holder", funding_witness_id).as_bytes()
-		);
-		let holder_hash_hex = format!("{}", holder_hash);
-		let holder_witness = format!("witness:{}:0", &holder_hash_hex[0..32]);
+			// Generate holder witness ID (MUST match settle_channel_close pattern exactly)
+			// CRITICAL: Use funding_witness_id ("witness:txid:vout") to match settle_channel_close()
+			use bitcoin::hashes::{sha256, Hash};
+			let holder_hash =
+				sha256::Hash::hash(format!("{}holder", funding_witness_id).as_bytes());
+			let holder_hash_hex = format!("{}", holder_hash);
+			let holder_witness = format!("witness:{}:0", &holder_hash_hex[0..32]);
 
-		eprintln!("  Holder witness ID: {}", holder_witness);
+			eprintln!("  Holder witness ID: {}", holder_witness);
 
 			// Determine destination UTXO for claim: closing TX's to_holder output
 			// We need to find the vout for the holder's output in the closing transaction
 			if holder_amount > 0 {
 				// Find the holder's output vout from output_map
-				let holder_vout = asset_info.output_map.iter()
+				let holder_vout = asset_info
+					.output_map
+					.iter()
 					.find(|(_, &amount)| amount == holder_amount)
 					.map(|(&vout, _)| vout)
 					.ok_or(RgbLibError::Other(format!(
@@ -738,21 +750,28 @@ impl Wallet {
 					.get()
 					.ok_or(RgbLibError::Other("Settlement executor not initialized".to_string()))?;
 
-				let already_claimed = executor.is_witness_claimed(&holder_witness, &contract_id_str)?;
+				let already_claimed =
+					executor.is_witness_claimed(&holder_witness, &contract_id_str)?;
 
 				if already_claimed {
-					eprintln!("⏭️  color_psbt: Witness {} already claimed, skipping duplicate", holder_witness);
+					eprintln!(
+						"⏭️  color_psbt: Witness {} already claimed, skipping duplicate",
+						holder_witness
+					);
 				} else {
 					// Execute claim via settlement executor
 					eprintln!("🔄 color_psbt: Calling claim_from_witness()...");
 
-					executor.claim_from_witness(&holder_witness, &destination_utxo, &contract_id_str)
+					executor
+						.claim_from_witness(&holder_witness, &destination_utxo, &contract_id_str)
 						.map_err(|e| {
 							eprintln!("❌ color_psbt: Auto-claim failed: {}", e);
 							e
 						})?;
 
-					eprintln!("✅ color_psbt: Auto-claim successful - assets now in closing TX output");
+					eprintln!(
+						"✅ color_psbt: Auto-claim successful - assets now in closing TX output"
+					);
 				}
 			} else {
 				eprintln!("⚠️  color_psbt: Holder amount is 0, skipping auto-claim");
@@ -766,70 +785,72 @@ impl Wallet {
 			self.get_f1r3fly_state_hash(contract_id)?
 		};
 
-	// 3. Find or add the OP_RETURN output
-	let opreturn_index = match psbt.unsigned_tx.output
-		.iter()
-		.position(|o| o.script_pubkey.is_op_return())
-	{
-		Some(idx) => {
-			eprintln!("  OP_RETURN found at existing index: {}", idx);
-			idx
-		}
-		None => {
-			// No OP_RETURN yet (commitment/closing TX created by LDK)
-			// Add it now
-			eprintln!("  ⚠️  No OP_RETURN found, adding new output");
-			let opreturn_output = TxOut {
-				value: bitcoin::Amount::ZERO,
-				script_pubkey: bitcoin::ScriptBuf::new_op_return(&[]),
+		// 3. Find or add the OP_RETURN output
+		let opreturn_index =
+			match psbt.unsigned_tx.output.iter().position(|o| o.script_pubkey.is_op_return()) {
+				Some(idx) => {
+					eprintln!("  OP_RETURN found at existing index: {}", idx);
+					idx
+				},
+				None => {
+					// No OP_RETURN yet (commitment/closing TX created by LDK)
+					// Add it now
+					eprintln!("  ⚠️  No OP_RETURN found, adding new output");
+					let opreturn_output = TxOut {
+						value: bitcoin::Amount::ZERO,
+						script_pubkey: bitcoin::ScriptBuf::new_op_return(&[]),
+					};
+					psbt.unsigned_tx.output.push(opreturn_output);
+					// Also resize psbt.outputs to match
+					psbt.outputs.resize(psbt.unsigned_tx.output.len(), Default::default());
+					let idx = psbt.unsigned_tx.output.len() - 1;
+					eprintln!("  Added OP_RETURN at new index: {}", idx);
+					idx
+				},
 			};
-			psbt.unsigned_tx.output.push(opreturn_output);
-			// Also resize psbt.outputs to match
-			psbt.outputs.resize(psbt.unsigned_tx.output.len(), Default::default());
-			let idx = psbt.unsigned_tx.output.len() - 1;
-			eprintln!("  Added OP_RETURN at new index: {}", idx);
-			idx
-		}
-	};
 
-	eprintln!("  State hash (32 bytes): {:02x?}", &state_hash[..]);
+		eprintln!("  State hash (32 bytes): {:02x?}", &state_hash[..]);
 
-	// 4. Update the OP_RETURN script with actual state hash
-	let opreturn_script = bitcoin::ScriptBuf::new_op_return(&state_hash);
+		// 4. Update the OP_RETURN script with actual state hash
+		let opreturn_script = bitcoin::ScriptBuf::new_op_return(&state_hash);
 
-	// 5. Update PSBT in-place
-	psbt.unsigned_tx.output[opreturn_index].script_pubkey = opreturn_script.clone();
+		// 5. Update PSBT in-place
+		psbt.unsigned_tx.output[opreturn_index].script_pubkey = opreturn_script.clone();
 
-	eprintln!("  ✅ Successfully updated OP_RETURN at index {}", opreturn_index);
+		eprintln!("  ✅ Successfully updated OP_RETURN at index {}", opreturn_index);
 
-	// 6. Log final PSBT state
-	eprintln!("🎨 color_psbt: AFTER MODIFICATION");
-	eprintln!("  OUTPUT psbt.unsigned_tx.output.len() = {}", psbt.unsigned_tx.output.len());
-	eprintln!("  OUTPUT psbt.outputs.len() = {}", psbt.outputs.len());
-	for (i, out) in psbt.unsigned_tx.output.iter().enumerate() {
-		if out.script_pubkey.is_op_return() {
-			let opret_data = if out.script_pubkey.len() > 2 {
-				&out.script_pubkey.as_bytes()[2..] // Skip OP_RETURN and length byte
+		// 6. Log final PSBT state
+		eprintln!("🎨 color_psbt: AFTER MODIFICATION");
+		eprintln!("  OUTPUT psbt.unsigned_tx.output.len() = {}", psbt.unsigned_tx.output.len());
+		eprintln!("  OUTPUT psbt.outputs.len() = {}", psbt.outputs.len());
+		for (i, out) in psbt.unsigned_tx.output.iter().enumerate() {
+			if out.script_pubkey.is_op_return() {
+				let opret_data = if out.script_pubkey.len() > 2 {
+					&out.script_pubkey.as_bytes()[2..] // Skip OP_RETURN and length byte
+				} else {
+					&[]
+				};
+				eprintln!(
+					"  OUTPUT Output {}: OP_RETURN with {} bytes of data",
+					i,
+					opret_data.len()
+				);
 			} else {
-				&[]
-			};
-			eprintln!("  OUTPUT Output {}: OP_RETURN with {} bytes of data", i, opret_data.len());
-		} else {
-			eprintln!("  OUTPUT Output {}: {} sats", i, out.value.to_sat());
+				eprintln!("  OUTPUT Output {}: {} sats", i, out.value.to_sat());
+			}
 		}
-	}
 
-	// 7. Verify PSBT can be extracted
-	let extract_result = psbt.clone().extract_tx();
-	match extract_result {
-		Ok(tx) => {
-			eprintln!("  ✅ PSBT extraction: SUCCESS");
-			eprintln!("  Extracted TXID: {}", tx.compute_txid());
+		// 7. Verify PSBT can be extracted
+		let extract_result = psbt.clone().extract_tx();
+		match extract_result {
+			Ok(tx) => {
+				eprintln!("  ✅ PSBT extraction: SUCCESS");
+				eprintln!("  Extracted TXID: {}", tx.compute_txid());
+			},
+			Err(e) => {
+				eprintln!("  ❌ PSBT extraction: FAILED - {:?}", e);
+			},
 		}
-		Err(e) => {
-			eprintln!("  ❌ PSBT extraction: FAILED - {:?}", e);
-		}
-	}
 
 		// 8. Return Fascia (stub for now - we don't use consignments in F1r3fly)
 		let fascia = Fascia;
@@ -838,7 +859,9 @@ impl Wallet {
 		Ok((fascia, file_content))
 	}
 
-	pub fn consume_fascia(&self, _fascia: Fascia, _txid: RgbTxid, _witness_ord: Option<WitnessOrd>) -> Result<(), RgbLibError> {
+	pub fn consume_fascia(
+		&self, _fascia: Fascia, _txid: RgbTxid, _witness_ord: Option<WitnessOrd>,
+	) -> Result<(), RgbLibError> {
 		// Stub: always succeed
 		// F1r3fly doesn't use consignments - state is managed on F1r3node
 		// The commitment TX already embeds the state hash in OP_RETURN
@@ -852,10 +875,7 @@ impl Wallet {
 	///
 	/// Uses recipient_id format: "{contract_id}_acceptor_pubkey"
 	pub fn post_acceptor_pubkey_to_proxy(
-		&self,
-		contract_id: &str,
-		wallet_pubkey: &str,
-		proxy_url: &str,
+		&self, contract_id: &str, wallet_pubkey: &str, proxy_url: &str,
 	) -> Result<(), RgbLibError> {
 		eprintln!("📤 post_acceptor_pubkey_to_proxy: Posting Node2's pubkey to proxy");
 		eprintln!("   Contract: {}", contract_id);
@@ -907,14 +927,18 @@ impl Wallet {
 		eprintln!("📤 post_acceptor_pubkey_to_proxy: Sending to {}", http_proxy_url);
 
 		let client = reqwest::blocking::Client::new();
-		let response = client.post(&http_proxy_url)
+		let response = client
+			.post(&http_proxy_url)
 			.header("Content-Type", "application/json")
 			.json(&rpc_request)
 			.send()
 			.map_err(|e| RgbLibError::Other(format!("Failed to post acceptor pubkey: {}", e)))?;
 
 		if !response.status().is_success() {
-			eprintln!("⚠️  post_acceptor_pubkey_to_proxy: Proxy POST failed: {}", response.status());
+			eprintln!(
+				"⚠️  post_acceptor_pubkey_to_proxy: Proxy POST failed: {}",
+				response.status()
+			);
 			return Err(RgbLibError::Other(format!(
 				"Proxy rejected acceptor pubkey post: {}",
 				response.status()
@@ -931,18 +955,15 @@ impl Wallet {
 	/// If not found, downloads from proxy using recipient_id: "{contract_id}_acceptor_pubkey"
 	/// and caches it for future use.
 	pub fn get_counterparty_pubkey(
-		&self,
-		contract_id: &str,
-		proxy_url: &str,
+		&self, contract_id: &str, proxy_url: &str,
 	) -> Result<String, RgbLibError> {
-		eprintln!("🔍 get_counterparty_pubkey: Looking up counterparty for contract {}", contract_id);
+		eprintln!(
+			"🔍 get_counterparty_pubkey: Looking up counterparty for contract {}",
+			contract_id
+		);
 
-		// Path: ldk_data_dir/../rgb-lightning-wallet/f1r3fly_state.json
-		let wallet_dir = self.ldk_data_dir
-			.parent()
-			.ok_or(RgbLibError::Other("Cannot get parent directory".to_string()))?
-			.join("rgb-lightning-wallet");
-		let state_file_path = wallet_dir.join("f1r3fly_state.json");
+		// Use network-aware path: <data_dir>/<network>/rgb-lightning-wallet/f1r3fly_state.json
+		let state_file_path = _get_f1r3fly_state_file_path(&self.ldk_data_dir);
 
 		// Try cache first
 		if state_file_path.exists() {
@@ -987,7 +1008,8 @@ impl Wallet {
 		});
 
 		let client = reqwest::blocking::Client::new();
-		let response = client.post(&http_proxy_url)
+		let response = client
+			.post(&http_proxy_url)
 			.header("Content-Type", "application/json")
 			.json(&rpc_request)
 			.send()
@@ -1012,19 +1034,22 @@ impl Wallet {
 			consignment: String,
 		}
 
-		let rpc_response = response.json::<JsonRpcResponse>()
+		let rpc_response = response
+			.json::<JsonRpcResponse>()
 			.map_err(|e| RgbLibError::Other(format!("Failed to parse response: {}", e)))?;
 
 		if let Some(error) = rpc_response.error {
 			return Err(RgbLibError::Other(format!("Proxy error: {}", error)));
 		}
 
-		let result = rpc_response.result
+		let result = rpc_response
+			.result
 			.ok_or_else(|| RgbLibError::Other("No result in response".to_string()))?;
 
 		// Decode base64 consignment
 		use base64::Engine;
-		let json_bytes = base64::engine::general_purpose::STANDARD.decode(&result.consignment)
+		let json_bytes = base64::engine::general_purpose::STANDARD
+			.decode(&result.consignment)
 			.map_err(|e| RgbLibError::Other(format!("Failed to decode base64: {}", e)))?;
 
 		let json_text = String::from_utf8(json_bytes)
@@ -1046,8 +1071,9 @@ impl Wallet {
 		if state_file_path.exists() {
 			let mut state: serde_json::Value = serde_json::from_str(
 				&fs::read_to_string(&state_file_path)
-					.map_err(|e| RgbLibError::Other(format!("Failed to read state: {}", e)))?
-			).unwrap_or(serde_json::json!({}));
+					.map_err(|e| RgbLibError::Other(format!("Failed to read state: {}", e)))?,
+			)
+			.unwrap_or(serde_json::json!({}));
 
 			if state.get("channel_counterparties").is_none() {
 				state["channel_counterparties"] = serde_json::json!({});
@@ -1071,11 +1097,8 @@ impl Wallet {
 	/// The funding UTXO is stored in the contract's data when the RGB channel is opened.
 	/// It's used as the source UTXO for channel closing settlement.
 	fn read_funding_utxo_from_state(&self, contract_id_str: &str) -> Result<String, RgbLibError> {
-		let state_file_path = self.ldk_data_dir
-			.parent()
-			.ok_or(RgbLibError::Other("Cannot get parent directory".to_string()))?
-			.join("rgb-lightning-wallet")
-			.join("f1r3fly_state.json");
+		// Use network-aware path: <data_dir>/<network>/rgb-lightning-wallet/f1r3fly_state.json
+		let state_file_path = _get_f1r3fly_state_file_path(&self.ldk_data_dir);
 
 		let state_json = fs::read_to_string(&state_file_path)
 			.map_err(|e| RgbLibError::Other(format!("Failed to read state file: {}", e)))?;
@@ -1083,21 +1106,21 @@ impl Wallet {
 		let state: serde_json::Value = serde_json::from_str(&state_json)
 			.map_err(|e| RgbLibError::Other(format!("Failed to parse state JSON: {}", e)))?;
 
-		let contract_data = state
-			.get("genesis_utxos")
-			.and_then(|c| c.get(contract_id_str))
-			.ok_or(RgbLibError::Other(format!("Contract {} not found in state (genesis_utxos)", contract_id_str)))?;
+		let contract_data = state.get("genesis_utxos").and_then(|c| c.get(contract_id_str)).ok_or(
+			RgbLibError::Other(format!(
+				"Contract {} not found in state (genesis_utxos)",
+				contract_id_str
+			)),
+		)?;
 
 		// The funding UTXO is stored as "txid:vout" in the genesis UTXO data
-		let txid = contract_data
-			.get("txid")
-			.and_then(|t| t.as_str())
-			.ok_or(RgbLibError::Other(format!("TXID not found for contract {}", contract_id_str)))?;
+		let txid = contract_data.get("txid").and_then(|t| t.as_str()).ok_or(RgbLibError::Other(
+			format!("TXID not found for contract {}", contract_id_str),
+		))?;
 
-		let vout = contract_data
-			.get("vout")
-			.and_then(|v| v.as_u64())
-			.ok_or(RgbLibError::Other(format!("Vout not found for contract {}", contract_id_str)))?;
+		let vout = contract_data.get("vout").and_then(|v| v.as_u64()).ok_or(RgbLibError::Other(
+			format!("Vout not found for contract {}", contract_id_str),
+		))?;
 
 		Ok(format!("{}:{}", txid, vout))
 	}
@@ -1107,11 +1130,7 @@ impl Wallet {
 	/// Calls the global SettlementExecutor to perform atomic settlement on F1r3node.
 	/// Returns the new state hash for embedding in the closing transaction's OP_RETURN.
 	fn execute_settlement(
-		&self,
-		funding_utxo: &str,
-		holder_amount: u64,
-		counterparty_amount: u64,
-		contract_id: &str,
+		&self, funding_utxo: &str, holder_amount: u64, counterparty_amount: u64, contract_id: &str,
 	) -> Result<[u8; 32], RgbLibError> {
 		let executor = SETTLEMENT_EXECUTOR
 			.get()
@@ -1133,18 +1152,16 @@ impl Wallet {
 	/// 3. State hash proves the channel has authentic RGB assets
 	/// 4. Real state update only happens on channel close (settlement TX)
 	///
-	/// The genesis state hash is read from f1r3fly_state.json in the parent directory
-	/// of ldk_data_dir (where the F1r3fly wallet stores its state).
+	/// The genesis state hash is read from f1r3fly_state.json in the network-specific directory.
 	fn get_f1r3fly_state_hash(&self, contract_id: &ContractId) -> Result<[u8; 32], RgbLibError> {
-		// Path to f1r3fly_state.json: parent directory of .ldk/ + wallet subdirectory
-		// The wallet is stored in: parent_dir/rgb-lightning-wallet/f1r3fly_state.json
-		let state_file_path = self.ldk_data_dir
-			.parent()
-			.ok_or(RgbLibError::Other("Cannot get parent directory".to_string()))?
-			.join("rgb-lightning-wallet")
-			.join("f1r3fly_state.json");
+		// Use network-aware path: <data_dir>/<network>/rgb-lightning-wallet/f1r3fly_state.json
+		let state_file_path = _get_f1r3fly_state_file_path(&self.ldk_data_dir);
 
-		eprintln!("📖 get_f1r3fly_state_hash: Looking for contract_id={} in {}", contract_id, state_file_path.display());
+		eprintln!(
+			"📖 get_f1r3fly_state_hash: Looking for contract_id={} in {}",
+			contract_id,
+			state_file_path.display()
+		);
 
 		if !state_file_path.exists() {
 			eprintln!("❌ get_f1r3fly_state_hash: File does not exist!");
@@ -1173,57 +1190,73 @@ impl Wallet {
 				contract_id_str
 			)))?;
 
-	// Extract state hash
-	// For Node2 (acceptor), state_hash is stored at top level (genesis_execution_result is null)
-	// For Node1 (issuer), state_hash is in genesis_execution_result.state_hash
-	// Try top level first (Node2 case), then fall back to nested (Node1 case)
-	let state_hash_array = contract_data
-		.get("state_hash")
-		.and_then(|h| h.as_array())
-		.or_else(|| {
-			contract_data
-				.get("genesis_execution_result")
-				.and_then(|g| g.get("state_hash"))
-				.and_then(|h| h.as_array())
-		})
-		.ok_or(RgbLibError::Other(format!(
-			"Genesis state hash not found for contract {}",
-			contract_id_str
-		)))?;
+		// Extract state hash
+		// For Node2 (acceptor), state_hash is stored at top level (genesis_execution_result is null)
+		// For Node1 (issuer), state_hash is in genesis_execution_result.state_hash
+		// Try top level first (Node2 case), then fall back to nested (Node1 case)
+		let state_hash_array = contract_data
+			.get("state_hash")
+			.and_then(|h| h.as_array())
+			.or_else(|| {
+				contract_data
+					.get("genesis_execution_result")
+					.and_then(|g| g.get("state_hash"))
+					.and_then(|h| h.as_array())
+			})
+			.ok_or(RgbLibError::Other(format!(
+				"Genesis state hash not found for contract {}",
+				contract_id_str
+			)))?;
 
-	eprintln!("📖 get_f1r3fly_state_hash: Found state_hash array with {} elements", state_hash_array.len());
-
-	// Convert JSON array to [u8; 32]
-	if state_hash_array.len() != 32 {
-		return Err(RgbLibError::Other(format!(
-			"Invalid state hash length: expected 32 bytes, got {}",
+		eprintln!(
+			"📖 get_f1r3fly_state_hash: Found state_hash array with {} elements",
 			state_hash_array.len()
-		)));
-	}
+		);
 
-	let mut state_hash = [0u8; 32];
-	for (i, byte_val) in state_hash_array.iter().enumerate() {
-		state_hash[i] = byte_val.as_u64()
-			.ok_or(RgbLibError::Other(format!("Invalid byte at index {}", i)))? as u8;
-	}
+		// Convert JSON array to [u8; 32]
+		if state_hash_array.len() != 32 {
+			return Err(RgbLibError::Other(format!(
+				"Invalid state hash length: expected 32 bytes, got {}",
+				state_hash_array.len()
+			)));
+		}
+
+		let mut state_hash = [0u8; 32];
+		for (i, byte_val) in state_hash_array.iter().enumerate() {
+			state_hash[i] = byte_val
+				.as_u64()
+				.ok_or(RgbLibError::Other(format!("Invalid byte at index {}", i)))?
+				as u8;
+		}
 
 		Ok(state_hash)
 	}
 
 	// Stub methods for src/rgb.rs and src/ldk.rs
-	pub fn blind_receive(&self, _asset_id: Option<String>, _assignment: Assignment, _duration_seconds: Option<u32>, _transport_endpoints: Vec<String>, _min_confirmations: u8) -> Result<ReceiveData, RgbLibError> {
+	pub fn blind_receive(
+		&self, _asset_id: Option<String>, _assignment: Assignment, _duration_seconds: Option<u32>,
+		_transport_endpoints: Vec<String>, _min_confirmations: u8,
+	) -> Result<ReceiveData, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn color_psbt_and_consume(&self, _psbt: &mut Psbt, _coloring_info: ColoringInfo) -> Result<Vec<RgbTransfer>, RgbLibError> {
+	pub fn color_psbt_and_consume(
+		&self, _psbt: &mut Psbt, _coloring_info: ColoringInfo,
+	) -> Result<Vec<RgbTransfer>, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn create_utxos(&self, _online: Online, _up_to: bool, _num: Option<u8>, _size: Option<u32>, _fee_rate: u64, _skip_sync: bool) -> Result<u8, RgbLibError> {
+	pub fn create_utxos(
+		&self, _online: Online, _up_to: bool, _num: Option<u8>, _size: Option<u32>, _fee_rate: u64,
+		_skip_sync: bool,
+	) -> Result<u8, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn fail_transfers(&self, _online: Online, _batch_transfer_idx: Option<i32>, _no_asset_only: bool, _skip_sync: bool) -> Result<bool, RgbLibError> {
+	pub fn fail_transfers(
+		&self, _online: Online, _batch_transfer_idx: Option<i32>, _no_asset_only: bool,
+		_skip_sync: bool,
+	) -> Result<bool, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
@@ -1239,7 +1272,9 @@ impl Wallet {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn get_btc_balance(&self, _online: Option<Online>, _skip_sync: bool) -> Result<BtcBalance, RgbLibError> {
+	pub fn get_btc_balance(
+		&self, _online: Option<Online>, _skip_sync: bool,
+	) -> Result<BtcBalance, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
@@ -1263,23 +1298,35 @@ impl Wallet {
 		unimplemented!()
 	}
 
-	pub fn issue_asset_cfa(&self, _name: String, _description: Option<String>, _precision: u8, _amounts: Vec<u64>, _file_path: Option<String>) -> Result<AssetCFA, RgbLibError> {
+	pub fn issue_asset_cfa(
+		&self, _name: String, _description: Option<String>, _precision: u8, _amounts: Vec<u64>,
+		_file_path: Option<String>,
+	) -> Result<AssetCFA, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn issue_asset_nia(&self, _ticker: String, _name: String, _precision: u8, _amounts: Vec<u64>) -> Result<AssetNIA, RgbLibError> {
+	pub fn issue_asset_nia(
+		&self, _ticker: String, _name: String, _precision: u8, _amounts: Vec<u64>,
+	) -> Result<AssetNIA, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn issue_asset_uda(&self, _ticker: String, _name: String, _details: Option<String>, _precision: u8, _media_file_path: Option<String>, _attachments_file_paths: Vec<String>) -> Result<AssetUDA, RgbLibError> {
+	pub fn issue_asset_uda(
+		&self, _ticker: String, _name: String, _details: Option<String>, _precision: u8,
+		_media_file_path: Option<String>, _attachments_file_paths: Vec<String>,
+	) -> Result<AssetUDA, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn list_assets(&self, _filter_asset_schemas: Vec<AssetSchema>) -> Result<Assets, RgbLibError> {
+	pub fn list_assets(
+		&self, _filter_asset_schemas: Vec<AssetSchema>,
+	) -> Result<Assets, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn list_transactions(&self, _online: Option<Online>, _skip_sync: bool) -> Result<Vec<RgbLibTransaction>, RgbLibError> {
+	pub fn list_transactions(
+		&self, _online: Option<Online>, _skip_sync: bool,
+	) -> Result<Vec<RgbLibTransaction>, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
@@ -1287,51 +1334,78 @@ impl Wallet {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn list_unspents(&self, _online: Option<Online>, _settled_only: bool, _skip_sync: bool) -> Result<Vec<Unspent>, RgbLibError> {
+	pub fn list_unspents(
+		&self, _online: Option<Online>, _settled_only: bool, _skip_sync: bool,
+	) -> Result<Vec<Unspent>, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn list_unspents_vanilla(&self, _online: Online, _min_confirmations: u8, _skip_sync: bool) -> Result<Vec<Unspent>, RgbLibError> {
+	pub fn list_unspents_vanilla(
+		&self, _online: Online, _min_confirmations: u8, _skip_sync: bool,
+	) -> Result<Vec<Unspent>, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn post_consignment<P: AsRef<std::path::Path>>(&self, _proxy_url: String, _recipient_id: String, _consignment_path: P, _txid: String, _vout: Option<u32>) -> Result<(), RgbLibError> {
+	pub fn post_consignment<P: AsRef<std::path::Path>>(
+		&self, _proxy_url: String, _recipient_id: String, _consignment_path: P, _txid: String,
+		_vout: Option<u32>,
+	) -> Result<(), RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn refresh(&self, _online: Online, _asset_id: Option<String>, _filter: Vec<String>, _skip_sync: bool) -> Result<RefreshResult, RgbLibError> {
+	pub fn refresh(
+		&self, _online: Online, _asset_id: Option<String>, _filter: Vec<String>, _skip_sync: bool,
+	) -> Result<RefreshResult, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn save_new_asset(&self, _consignment: RgbTransfer, _txid: String) -> Result<(), RgbLibError> {
+	pub fn save_new_asset(
+		&self, _consignment: RgbTransfer, _txid: String,
+	) -> Result<(), RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn send(&self, _online: Online, _recipient_map: std::collections::HashMap<String, Vec<Recipient>>, _donation: bool, _fee_rate: u64, _min_confirmations: u8, _skip_sync: bool) -> Result<OperationResult, RgbLibError> {
+	pub fn send(
+		&self, _online: Online, _recipient_map: std::collections::HashMap<String, Vec<Recipient>>,
+		_donation: bool, _fee_rate: u64, _min_confirmations: u8, _skip_sync: bool,
+	) -> Result<OperationResult, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn send_begin(&self, _online: Online, _recipient_map: std::collections::HashMap<String, Vec<Recipient>>, _donation: bool, _fee_rate: u64, _min_confirmations: u8) -> Result<String, RgbLibError> {
+	pub fn send_begin(
+		&self, _online: Online, _recipient_map: std::collections::HashMap<String, Vec<Recipient>>,
+		_donation: bool, _fee_rate: u64, _min_confirmations: u8,
+	) -> Result<String, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn send_btc(&self, _online: Online, _address: String, _amount: u64, _fee_rate: u64, _skip_sync: bool) -> Result<String, RgbLibError> {
+	pub fn send_btc(
+		&self, _online: Online, _address: String, _amount: u64, _fee_rate: u64, _skip_sync: bool,
+	) -> Result<String, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn send_btc_begin(&self, _online: Online, _address: String, _amount: u64, _fee_rate: u64, _skip_sync: bool) -> Result<String, RgbLibError> {
+	pub fn send_btc_begin(
+		&self, _online: Online, _address: String, _amount: u64, _fee_rate: u64, _skip_sync: bool,
+	) -> Result<String, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn send_btc_end(&self, _online: Online, _signed_psbt: String, _skip_sync: bool) -> Result<String, RgbLibError> {
+	pub fn send_btc_end(
+		&self, _online: Online, _signed_psbt: String, _skip_sync: bool,
+	) -> Result<String, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn send_end(&self, _online: Online, _signed_psbt: String, _skip_sync: bool) -> Result<OperationResult, RgbLibError> {
+	pub fn send_end(
+		&self, _online: Online, _signed_psbt: String, _skip_sync: bool,
+	) -> Result<OperationResult, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn sign_psbt(&self, _unsigned_psbt: String, _sign_options: Option<SignOptions>) -> Result<String, RgbLibError> {
+	pub fn sign_psbt(
+		&self, _unsigned_psbt: String, _sign_options: Option<SignOptions>,
+	) -> Result<String, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
@@ -1339,15 +1413,22 @@ impl Wallet {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn update_witnesses(&self, _after_height: u32, _force_witnesses: Vec<bitcoin::Txid>) -> Result<UpdateRes, RgbLibError> {
+	pub fn update_witnesses(
+		&self, _after_height: u32, _force_witnesses: Vec<bitcoin::Txid>,
+	) -> Result<UpdateRes, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn upsert_witness(&self, _witness_id: bitcoin::Txid, _witness_ord: WitnessOrd) -> Result<(), RgbLibError> {
+	pub fn upsert_witness(
+		&self, _witness_id: bitcoin::Txid, _witness_ord: WitnessOrd,
+	) -> Result<(), RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 
-	pub fn witness_receive(&self, _asset_id: Option<String>, _assignment: Assignment, _duration_seconds: Option<u32>, _transport_endpoints: Vec<String>, _min_confirmations: u8) -> Result<ReceiveData, RgbLibError> {
+	pub fn witness_receive(
+		&self, _asset_id: Option<String>, _assignment: Assignment, _duration_seconds: Option<u32>,
+		_transport_endpoints: Vec<String>, _min_confirmations: u8,
+	) -> Result<ReceiveData, RgbLibError> {
 		Err(RgbLibError::Other("Not implemented".to_string()))
 	}
 }
@@ -1509,7 +1590,10 @@ pub struct Recipient {
 }
 
 impl Recipient {
-	pub fn new(recipient_id: String, witness_data: Option<WitnessData>, assignment: Assignment, transport_endpoints: Vec<String>) -> Self {
+	pub fn new(
+		recipient_id: String, witness_data: Option<WitnessData>, assignment: Assignment,
+		transport_endpoints: Vec<String>,
+	) -> Self {
 		Self { recipient_id, witness_data, assignment, transport_endpoints }
 	}
 }
@@ -1715,11 +1799,7 @@ impl TryFrom<RgbTransport> for TransportEndpoint {
 			TransportType::JsonRpc // Default to JsonRpc
 		};
 
-		Ok(Self {
-			endpoint,
-			transport_type,
-			used: false,
-		})
+		Ok(Self { endpoint, transport_type, used: false })
 	}
 }
 
@@ -1843,12 +1923,12 @@ pub mod wallet {
 // Stub utility functions needed by src/ldk.rs, src/routes.rs, src/rgb.rs
 pub fn generate_keys(bitcoin_network: BitcoinNetwork) -> wallet::WalletData {
 	// Generate a new BIP39 mnemonic (12 words)
-	use bitcoin::bip32::{Xpriv, Xpub, DerivationPath};
+	use bitcoin::bip32::{DerivationPath, Xpriv, Xpub};
 	use std::str::FromStr;
 
 	// Generate random entropy for 12-word mnemonic (128 bits = 16 bytes)
 	let mut entropy = [0u8; 16];
-	use bitcoin::hashes::{Hash, sha256};
+	use bitcoin::hashes::{sha256, Hash};
 	// Use current timestamp as seed for entropy (simple approach for testing)
 	let timestamp = std::time::SystemTime::now()
 		.duration_since(std::time::UNIX_EPOCH)
@@ -1874,15 +1954,22 @@ pub fn generate_keys(bitcoin_network: BitcoinNetwork) -> wallet::WalletData {
 	};
 
 	let master_xpriv = Xpriv::new_master(network, &seed).expect("Failed to create master key");
-	let master_fingerprint = master_xpriv.fingerprint(&bitcoin::secp256k1::Secp256k1::new()).to_string();
+	let master_fingerprint =
+		master_xpriv.fingerprint(&bitcoin::secp256k1::Secp256k1::new()).to_string();
 
 	// Derive account keys (m/84'/1'/0' for regtest/testnet, m/84'/0'/0' for mainnet)
 	let coin_type = if network == bitcoin::Network::Bitcoin { 0 } else { 1 };
-	let vanilla_path = DerivationPath::from_str(&format!("m/84'/{}'/0'", coin_type)).expect("Invalid derivation path");
-	let colored_path = DerivationPath::from_str(&format!("m/84'/{}'/1'", coin_type)).expect("Invalid derivation path");
+	let vanilla_path = DerivationPath::from_str(&format!("m/84'/{}'/0'", coin_type))
+		.expect("Invalid derivation path");
+	let colored_path = DerivationPath::from_str(&format!("m/84'/{}'/1'", coin_type))
+		.expect("Invalid derivation path");
 
-	let account_xpriv_vanilla = master_xpriv.derive_priv(&bitcoin::secp256k1::Secp256k1::new(), &vanilla_path).expect("Failed to derive vanilla key");
-	let account_xpriv_colored = master_xpriv.derive_priv(&bitcoin::secp256k1::Secp256k1::new(), &colored_path).expect("Failed to derive colored key");
+	let account_xpriv_vanilla = master_xpriv
+		.derive_priv(&bitcoin::secp256k1::Secp256k1::new(), &vanilla_path)
+		.expect("Failed to derive vanilla key");
+	let account_xpriv_colored = master_xpriv
+		.derive_priv(&bitcoin::secp256k1::Secp256k1::new(), &colored_path)
+		.expect("Failed to derive colored key");
 
 	let secp = bitcoin::secp256k1::Secp256k1::new();
 	let account_xpub_vanilla = Xpub::from_priv(&secp, &account_xpriv_vanilla).to_string();
@@ -1902,11 +1989,15 @@ pub fn generate_keys(bitcoin_network: BitcoinNetwork) -> wallet::WalletData {
 	}
 }
 
-pub fn get_account_data(_bitcoin_network: BitcoinNetwork, _mnemonic: &str, _colored: bool) -> Result<(String, String, String), RgbLibError> {
+pub fn get_account_data(
+	_bitcoin_network: BitcoinNetwork, _mnemonic: &str, _colored: bool,
+) -> Result<(String, String, String), RgbLibError> {
 	Ok(("derivation_path".to_string(), "xpub".to_string(), "fingerprint".to_string()))
 }
 
-pub fn recipient_id_from_script_buf(script: &bitcoin::ScriptBuf, network: BitcoinNetwork) -> String {
+pub fn recipient_id_from_script_buf(
+	script: &bitcoin::ScriptBuf, network: BitcoinNetwork,
+) -> String {
 	// F1r3fly doesn't use RGB recipient IDs for channel operations
 	// For channel funding, we need to preserve the funding address in the recipient_id
 	// So we just return the Bitcoin address as the recipient_id
@@ -1920,15 +2011,15 @@ pub fn recipient_id_from_script_buf(script: &bitcoin::ScriptBuf, network: Bitcoi
 	};
 
 	// Convert script to address
-	Address::from_script(script, bdk_network)
-		.map(|addr| addr.to_string())
-		.unwrap_or_else(|_| {
-			// Fallback: if script can't be converted to address, return a placeholder
-			format!("rgb:script:{}", bitcoin::hex::DisplayHex::to_lower_hex_string(script.as_bytes()))
-		})
+	Address::from_script(script, bdk_network).map(|addr| addr.to_string()).unwrap_or_else(|_| {
+		// Fallback: if script can't be converted to address, return a placeholder
+		format!("rgb:script:{}", bitcoin::hex::DisplayHex::to_lower_hex_string(script.as_bytes()))
+	})
 }
 
-pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<bitcoin::ScriptBuf, RgbLibError> {
+pub fn script_buf_from_recipient_id(
+	recipient_id: String,
+) -> Result<bitcoin::ScriptBuf, RgbLibError> {
 	// For F1r3fly, recipient_id is just a Bitcoin address (not an RGB recipient ID)
 	// Parse the address and extract its script_pubkey
 	use bitcoin::Address;
@@ -1940,7 +2031,9 @@ pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<bitcoin::Scr
 	Ok(addr.script_pubkey())
 }
 
-pub fn check_indexer_url(indexer_url: &str, _bitcoin_network: BitcoinNetwork) -> Result<IndexerProtocol, RgbLibError> {
+pub fn check_indexer_url(
+	indexer_url: &str, _bitcoin_network: BitcoinNetwork,
+) -> Result<IndexerProtocol, RgbLibError> {
 	// Simple check: if it's a port that looks like electrs, assume Electrum protocol
 	// Port 50001 is standard electrs port
 	if indexer_url.contains(":50001") || indexer_url.contains("electrum") {
@@ -2083,6 +2176,44 @@ fn _get_indexer_url(ldk_data_dir: &Path) -> String {
 	_read_file_in_parent(ldk_data_dir, INDEXER_URL_FNAME)
 }
 
+/// Get the path to the F1r3fly state file
+///
+/// The state file is stored at: `<data_dir>/<network>/rgb-lightning-wallet/f1r3fly_state.json`
+/// This matches the directory structure used by rgb-satchel.
+fn _get_f1r3fly_state_file_path(ldk_data_dir: &Path) -> PathBuf {
+	let bitcoin_network = _get_bitcoin_network(ldk_data_dir);
+	let network_str = match bitcoin_network {
+		BitcoinNetwork::Mainnet => "mainnet",
+		BitcoinNetwork::Testnet | BitcoinNetwork::Testnet4 => "testnet",
+		BitcoinNetwork::Signet => "signet",
+		BitcoinNetwork::Regtest => "regtest",
+	};
+	ldk_data_dir
+		.parent()
+		.expect("ldk_data_dir must have a parent")
+		.join(network_str)
+		.join("rgb-lightning-wallet")
+		.join("f1r3fly_state.json")
+}
+
+/// Get the wallet directory for F1r3fly state
+///
+/// Returns: `<data_dir>/<network>/rgb-lightning-wallet/`
+fn _get_f1r3fly_wallet_dir(ldk_data_dir: &Path) -> PathBuf {
+	let bitcoin_network = _get_bitcoin_network(ldk_data_dir);
+	let network_str = match bitcoin_network {
+		BitcoinNetwork::Mainnet => "mainnet",
+		BitcoinNetwork::Testnet | BitcoinNetwork::Testnet4 => "testnet",
+		BitcoinNetwork::Signet => "signet",
+		BitcoinNetwork::Regtest => "regtest",
+	};
+	ldk_data_dir
+		.parent()
+		.expect("ldk_data_dir must have a parent")
+		.join(network_str)
+		.join("rgb-lightning-wallet")
+}
+
 fn _new_rgb_wallet(
 	data_dir: String, bitcoin_network: BitcoinNetwork, account_xpub_vanilla: String,
 	account_xpub_colored: String, master_fingerprint: String,
@@ -2132,9 +2263,7 @@ async fn _get_rgb_wallet(ldk_data_dir: &Path) -> Wallet {
 /// Creates a temporary wallet to access the executor and get Node2's wallet master pubkey,
 /// then posts it to the proxy for Node1 to retrieve later when closing the channel.
 fn post_acceptor_pubkey_after_accept(
-	ldk_data_dir: &Path,
-	contract_id: &str,
-	proxy_url: &str,
+	ldk_data_dir: &Path, contract_id: &str, proxy_url: &str,
 ) -> Result<(), RgbLibError> {
 	eprintln!("📤 post_acceptor_pubkey_after_accept: Posting Node2's pubkey to proxy");
 
@@ -2155,11 +2284,12 @@ fn post_acceptor_pubkey_after_accept(
 	// The adapter writes the pubkey to a file at initialization, so we read it from there.
 	// This avoids requiring the FIREFLY_PRIVATE_KEY environment variable.
 	let pubkey_file = ldk_data_dir.join("my_wallet_pubkey");
-	let wallet_pubkey = fs::read_to_string(&pubkey_file)
-		.map_err(|e| RgbLibError::Other(format!(
+	let wallet_pubkey = fs::read_to_string(&pubkey_file).map_err(|e| {
+		RgbLibError::Other(format!(
 			"Failed to read wallet pubkey from {:?}: {}. Ensure the wallet adapter has initialized.",
 			pubkey_file, e
-		)))?;
+		))
+	})?;
 
 	eprintln!("   Node2 wallet pubkey: {}", wallet_pubkey);
 
@@ -2212,7 +2342,8 @@ fn post_acceptor_pubkey_after_accept(
 	eprintln!("   Recipient ID: {}", recipient_id);
 
 	let client = reqwest::blocking::Client::new();
-	let response = client.post(&http_proxy_url)
+	let response = client
+		.post(&http_proxy_url)
 		.multipart(form)
 		.send()
 		.map_err(|e| RgbLibError::Other(format!("Failed to post acceptor pubkey: {}", e)))?;
@@ -2221,7 +2352,10 @@ fn post_acceptor_pubkey_after_accept(
 	let _ = fs::remove_file(&temp_file_path);
 
 	if !response.status().is_success() {
-		eprintln!("⚠️  post_acceptor_pubkey_after_accept: Proxy POST failed: {}", response.status());
+		eprintln!(
+			"⚠️  post_acceptor_pubkey_after_accept: Proxy POST failed: {}",
+			response.status()
+		);
 		// Don't fail the channel opening if pubkey posting fails - it's a fallback mechanism
 		// Node1 can still get the pubkey via other means if needed
 		return Ok(());
@@ -2240,11 +2374,15 @@ fn post_acceptor_pubkey_after_accept(
 		message: String,
 	}
 
-	let rpc_response: JsonRpcResponse = response.json()
+	let rpc_response: JsonRpcResponse = response
+		.json()
 		.map_err(|e| RgbLibError::Other(format!("Failed to parse response: {}", e)))?;
 
 	if let Some(error) = rpc_response.error {
-		eprintln!("⚠️  post_acceptor_pubkey_after_accept: Proxy error: {} ({})", error.message, error.code);
+		eprintln!(
+			"⚠️  post_acceptor_pubkey_after_accept: Proxy error: {} ({})",
+			error.message, error.code
+		);
 		// Don't fail channel opening on pubkey post errors
 		return Ok(());
 	}
@@ -2298,18 +2436,14 @@ fn write_acceptor_state_file(
 	registry_uri: &str,
 	rholang_source: &str,
 	methods: &[String],
-	counterparty_wallet_pubkey: &str,  // Phase 4: Counterparty's wallet public key
+	counterparty_wallet_pubkey: &str, // Phase 4: Counterparty's wallet public key
 ) -> Result<(), RgbLibError> {
-	eprintln!("📝 write_acceptor_state_file: Registering contract for Node2");
+	eprintln!("write_acceptor_state_file: Registering contract for Node2");
 	eprintln!("  Contract: {} ({}) - {}", ticker, name, contract_id);
 
-	// Path: ldk_data_dir/../rgb-lightning-wallet/f1r3fly_state.json
-	let wallet_dir = ldk_data_dir
-		.parent()
-		.ok_or(RgbLibError::Other("Cannot get parent directory".to_string()))?
-		.join("rgb-lightning-wallet");
-
-	let state_file_path = wallet_dir.join("f1r3fly_state.json");
+	// Use network-aware path: <data_dir>/<network>/rgb-lightning-wallet/f1r3fly_state.json
+	let wallet_dir = _get_f1r3fly_wallet_dir(ldk_data_dir);
+	let state_file_path = _get_f1r3fly_state_file_path(ldk_data_dir);
 
 	// Ensure directory exists
 	fs::create_dir_all(&wallet_dir)
@@ -2319,13 +2453,12 @@ fn write_acceptor_state_file(
 	let mut state: serde_json::Value = if state_file_path.exists() {
 		let content = fs::read_to_string(&state_file_path)
 			.map_err(|e| RgbLibError::Other(format!("Failed to read state: {}", e)))?;
-		serde_json::from_str(&content)
-			.unwrap_or(serde_json::json!({
-				"genesis_utxos": {},
-				"contracts_metadata": {},
-				"contract_derivation_indices": {},
-				"derivation_index": 0,
-			}))
+		serde_json::from_str(&content).unwrap_or(serde_json::json!({
+			"genesis_utxos": {},
+			"contracts_metadata": {},
+			"contract_derivation_indices": {},
+			"derivation_index": 0,
+		}))
 	} else {
 		serde_json::json!({
 			"genesis_utxos": {},
@@ -2389,7 +2522,10 @@ fn write_acceptor_state_file(
 	}
 	state["channel_counterparties"][contract_id] = serde_json::json!(counterparty_wallet_pubkey);
 
-	eprintln!("📝 write_acceptor_state_file: Added channel counterparty for contract {}", contract_id);
+	eprintln!(
+		"📝 write_acceptor_state_file: Added channel counterparty for contract {}",
+		contract_id
+	);
 	eprintln!("   Counterparty pubkey: {}", counterparty_wallet_pubkey);
 
 	// Write back
@@ -2397,7 +2533,10 @@ fn write_acceptor_state_file(
 		.map_err(|e| RgbLibError::Other(format!("Failed to serialize: {}", e)))?;
 
 	eprintln!("📝 write_acceptor_state_file: Writing to {}", state_file_path.display());
-	eprintln!("📝 write_acceptor_state_file: contract_id={}, state_hash={}", contract_id, genesis_state_hash);
+	eprintln!(
+		"📝 write_acceptor_state_file: contract_id={}, state_hash={}",
+		contract_id, genesis_state_hash
+	);
 	eprintln!("📝 write_acceptor_state_file: Added contract metadata: {} methods", methods.len());
 
 	fs::write(&state_file_path, &json_str)
@@ -2586,11 +2725,10 @@ where
 	let handle = Handle::current();
 	let _ = handle.enter();
 	let wallet = futures::executor::block_on(_get_rgb_wallet(ldk_data_dir));
-	let (fascia, _) = wallet.color_psbt(&mut psbt, coloring_info)
-		.map_err(|e| {
-			eprintln!("❌ color_commitment: Failed to color commitment TX: {}", e);
-			ChannelError::Warn(format!("Failed to color commitment TX: {}", e))
-		})?;
+	let (fascia, _) = wallet.color_psbt(&mut psbt, coloring_info).map_err(|e| {
+		eprintln!("❌ color_commitment: Failed to color commitment TX: {}", e);
+		ChannelError::Warn(format!("Failed to color commitment TX: {}", e))
+	})?;
 	let psbt = Psbt::from_str(&psbt.to_string()).unwrap();
 	let modified_tx = match psbt.extract_tx() {
 		Ok(tx) => tx,
@@ -2833,14 +2971,17 @@ pub fn read_rgb_channel_info(channel_id: &ChannelId, ldk_data_dir: &Path) -> Opt
 			Ok(contents) => match serde_json::from_str::<RgbInfo>(&contents) {
 				Ok(rgb_info) => Some(rgb_info),
 				Err(e) => {
-					eprintln!("Failed to parse pending RGB info for channel {}: {}", channel_id_hex, e);
+					eprintln!(
+						"Failed to parse pending RGB info for channel {}: {}",
+						channel_id_hex, e
+					);
 					None
-				}
+				},
 			},
 			Err(e) => {
 				eprintln!("Failed to read pending RGB info for channel {}: {}", channel_id_hex, e);
 				None
-			}
+			},
 		};
 	}
 
@@ -2851,12 +2992,12 @@ pub fn read_rgb_channel_info(channel_id: &ChannelId, ldk_data_dir: &Path) -> Opt
 			Err(e) => {
 				eprintln!("Failed to parse RGB info file for channel {}: {}", channel_id_hex, e);
 				None
-			}
+			},
 		},
 		Err(e) => {
 			eprintln!("Failed to read RGB info file for channel {}: {}", channel_id_hex, e);
 			None
-		}
+		},
 	}
 }
 
@@ -2994,7 +3135,10 @@ pub(crate) fn handle_funding(
 		&rgb_info,
 	);
 
-	eprintln!("✅ handle_funding: SUCCESS - RGB info written for contract_id={}", rgb_info.contract_id);
+	eprintln!(
+		"✅ handle_funding: SUCCESS - RGB info written for contract_id={}",
+		rgb_info.contract_id
+	);
 	Ok(())
 }
 
