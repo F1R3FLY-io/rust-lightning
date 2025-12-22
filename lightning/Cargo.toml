@@ -17,7 +17,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 # Internal test utilities exposed to other repo crates
-_test_utils = ["regex", "bitcoin/bitcoinconsensus", "lightning-types/_test_utils"]
+_test_utils = [
+	"regex",
+	"bitcoin/bitcoinconsensus",
+	"lightning-types/_test_utils",
+]
 # Unlog messages superior at targeted level.
 max_level_off = []
 max_level_error = []
@@ -43,7 +47,9 @@ lightning-invoice = { version = "0.32.0", path = "../lightning-invoice", default
 
 base64 = "0.22"
 bech32 = { version = "0.9.1", default-features = false }
-bitcoin = { version = "0.32.2", default-features = false, features = ["secp-recovery"] }
+bitcoin = { version = "0.32.2", default-features = false, features = [
+	"secp-recovery",
+] }
 bip39 = "2.1"
 
 hashbrown = { version = "0.13", optional = true, default-features = false }
@@ -55,22 +61,20 @@ libm = { version = "0.2", optional = true, default-features = false }
 
 # RGB and related
 futures = "0.3"
-f1r3fly-rgb = { git = "https://github.com/F1R3FLY-io/f1r3fly-rgb", branch = "main" }
+# RGB Layer 1 (GitLab private repo - use SSH for local dev)
+rgbl1 = { git = "ssh://git@gitlab.com/smart-assets.io/satchel/rgbl1.git", branch = "master" }
 hypersonic = "0.12.0"
-serde = { version = "^1.0", features = [
-    "derive",
-] }
+serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
-tokio = { version = "1.14.1", features = [
-    "macros",
-    "rt-multi-thread",
-] }
+tokio = { version = "1.14.1", features = ["macros", "rt-multi-thread"] }
 reqwest = { version = "0.11", features = ["blocking", "json"] }
 hex = "0.4"
 
 [dev-dependencies]
 regex = "1.5.6"
-lightning-types = { version = "0.1.0", path = "../lightning-types", features = ["_test_utils"] }
+lightning-types = { version = "0.1.0", path = "../lightning-types", features = [
+	"_test_utils",
+] }
 
 [dev-dependencies.bitcoin]
 version = "0.32.2"

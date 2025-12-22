@@ -2151,24 +2151,15 @@ fn post_acceptor_pubkey_after_accept(
 		master_fingerprint,
 	);
 
-	// Get Node2's wallet master public key from the executor
-	// This requires accessing the F1r3flyRgbWalletWrapper, which we don't have direct access to here
-	//
-	// WORKAROUND: Read the FIREFLY_PRIVATE_KEY from environment and derive the pubkey
-	// This is safe because all nodes on the same wallet use the same master key
-	use std::env;
-	let master_key_hex = env::var("FIREFLY_PRIVATE_KEY")
-		.map_err(|_| RgbLibError::Other("FIREFLY_PRIVATE_KEY not set".to_string()))?;
-
-	let master_key_bytes = hex::decode(&master_key_hex)
-		.map_err(|e| RgbLibError::Other(format!("Invalid master key hex: {}", e)))?;
-
-	let master_secret_key = SecretKey::from_slice(&master_key_bytes)
-		.map_err(|e| RgbLibError::Other(format!("Invalid secp256k1 master key: {}", e)))?;
-
-	let secp = Secp256k1::new();
-	let master_public_key = PublicKey::from_secret_key(&secp, &master_secret_key);
-	let wallet_pubkey = hex::encode(master_public_key.serialize_uncompressed());
+	// Get Node2's wallet master public key
+	// The adapter writes the pubkey to a file at initialization, so we read it from there.
+	// This avoids requiring the FIREFLY_PRIVATE_KEY environment variable.
+	let pubkey_file = ldk_data_dir.join("my_wallet_pubkey");
+	let wallet_pubkey = fs::read_to_string(&pubkey_file)
+		.map_err(|e| RgbLibError::Other(format!(
+			"Failed to read wallet pubkey from {:?}: {}. Ensure the wallet adapter has initialized.",
+			pubkey_file, e
+		)))?;
 
 	eprintln!("   Node2 wallet pubkey: {}", wallet_pubkey);
 
